@@ -1,0 +1,199 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manga Recap Studio</title>
+<style>
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0b0d12;
+  color: #f4f5f7;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+header {
+  padding: 24px 18px;
+  border-bottom: 1px solid #292d38;
+  background: #11141c;
+}
+header h1 { margin: 0; font-size: 25px; }
+header p { color: #a9afbd; margin: 8px 0 0; }
+main { width: min(100% - 28px, 900px); margin: 26px auto; }
+.panel {
+  background: #141822;
+  border: 1px solid #2a3040;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 18px;
+}
+h2 { font-size: 18px; margin: 0 0 12px; }
+p { line-height: 1.5; }
+.muted { color: #a9afbd; }
+input[type=file] {
+  width: 100%; padding: 14px; border: 1px dashed #59647b;
+  border-radius: 10px; background: #0d1017; color: #f4f5f7;
+}
+button {
+  border: 0; border-radius: 10px; padding: 12px 16px;
+  background: #a78bfa; color: #151020; font-weight: 700;
+  cursor: pointer; margin-top: 12px;
+}
+button:disabled { opacity: .5; }
+#status { margin-top: 12px; overflow-wrap: anywhere; }
+#pages {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+  gap: 12px; margin-top: 18px;
+}
+.page { background: #0d1017; border-radius: 9px; overflow: hidden; }
+.page img { width: 100%; display: block; object-fit: contain; }
+.page small { display: block; padding: 8px; color: #c6cad4; }
+#viewer { width: 100%; max-height: 75vh; object-fit: contain; display: none; }
+#viewerControls { display: none; align-items: center; gap: 12px; flex-wrap: wrap; }
+footer { text-align: center; padding: 20px; color: #8c93a4; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📚 Manga Recap Studio</h1>
+  <p>Open a CBZ chapter and browse its pages.</p>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>1. Import a chapter</h2>
+    <p class="muted">Choose a .cbz or .zip comic archive. Files are processed locally in your browser.</p>
+    <input id="file" type="file">
+    <button id="load">Load chapter</button>
+    <div id="status" role="status" aria-live="polite">Choose a file to begin.</div>
+  </section>
+
+  <section class="panel">
+    <h2>2. Page viewer</h2>
+    <img id="viewer" alt="Selected manga page">
+    <div id="viewerControls">
+      <button id="prev">← Previous</button>
+      <span id="counter"></span>
+      <button id="next">Next →</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>3. Chapter pages</h2>
+    <p class="muted" id="pageHint">Your page thumbnails will appear here.</p>
+    <div id="pages"></div>
+  </section>
+</main>
+
+<footer>Manga Recap Studio · Browser-based prototype</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+const fileInput = document.getElementById("file");
+const loadButton = document.getElementById("load");
+const statusBox = document.getElementById("status");
+const pagesBox = document.getElementById("pages");
+const viewer = document.getElementById("viewer");
+const controls = document.getElementById("viewerControls");
+const counter = document.getElementById("counter");
+const pageHint = document.getElementById("pageHint");
+
+let pageUrls = [];
+let currentPage = 0;
+
+function showStatus(message) {
+  statusBox.textContent = message;
+}
+
+function showPage(index) {
+  if (!pageUrls.length) return;
+  currentPage = Math.max(0, Math.min(index, pageUrls.length - 1));
+  viewer.src = pageUrls[currentPage].url;
+  viewer.style.display = "block";
+  controls.style.display = "flex";
+  counter.textContent = "Page " + (currentPage + 1) + " of " + pageUrls.length;
+  document.getElementById("prev").disabled = currentPage === 0;
+  document.getElementById("next").disabled = currentPage === pageUrls.length - 1;
+}
+
+document.getElementById("prev").addEventListener("click", () => showPage(currentPage - 1));
+document.getElementById("next").addEventListener("click", () => showPage(currentPage + 1));
+
+loadButton.addEventListener("click", async () => {
+  const file = fileInput.files && fileInput.files[0];
+
+  if (!file) {
+    showStatus("Please choose your CBZ file first.");
+    return;
+  }
+  if (!/\.(cbz|zip)$/i.test(file.name)) {
+    showStatus("That file does not end in .cbz or .zip. Please choose a comic archive.");
+    return;
+  }
+  if (file.size > 100 * 1024 * 1024) {
+    showStatus("This prototype supports files up to 100 MB.");
+    return;
+  }
+  if (typeof JSZip === "undefined") {
+    showStatus("The ZIP library could not load. Check your internet connection and reload the page.");
+    return;
+  }
+
+  loadButton.disabled = true;
+  pagesBox.replaceChildren();
+  pageUrls.forEach(page => URL.revokeObjectURL(page.url));
+  pageUrls = [];
+  viewer.style.display = "none";
+  controls.style.display = "none";
+  showStatus("Opening archive…");
+
+  try {
+    const zip = await JSZip.loadAsync(file);
+    const imageFiles = Object.values(zip.files)
+      .filter(entry => !entry.dir && /\.(jpe?g|png|webp|gif|avif)$/i.test(entry.name))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    if (!imageFiles.length) {
+      showStatus("No supported images were found in this archive.");
+      return;
+    }
+    if (imageFiles.length > 500) {
+      showStatus("This prototype supports up to 500 pages per chapter.");
+      return;
+    }
+
+    for (let i = 0; i < imageFiles.length; i++) {
+      showStatus("Extracting page " + (i + 1) + " of " + imageFiles.length + "…");
+      const blob = await imageFiles[i].async("blob");
+      const url = URL.createObjectURL(blob);
+      pageUrls.push({ name: imageFiles[i].name, url });
+
+      const card = document.createElement("div");
+      card.className = "page";
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "Manga page " + (i + 1);
+      img.loading = "lazy";
+      const label = document.createElement("small");
+      label.textContent = "Page " + (i + 1);
+      card.append(img, label);
+      card.addEventListener("click", () => showPage(i));
+      card.style.cursor = "pointer";
+      pagesBox.append(card);
+    }
+
+    pageHint.textContent = imageFiles.length + " pages extracted. Tap a thumbnail to view it.";
+    showPage(0);
+    showStatus("Success! Your chapter is ready to browse.");
+  } catch (error) {
+    console.error(error);
+    showStatus("Could not read this archive. Try reselecting the CBZ file.");
+  } finally {
+    loadButton.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
