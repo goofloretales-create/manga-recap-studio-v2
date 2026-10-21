@@ -158,10 +158,7 @@ loadButton.addEventListener("click", async () => {
     if (!imageFiles.length) {
       showStatus("No supported images were found in this archive.");
       return;
-    }
-    if (imageFiles.length > 500) {
-      showStatus("This prototype supports up to 500 pages per chapter.");
-      return;
+    
     }
 
     for (let i = 0; i < imageFiles.length; i++) {
